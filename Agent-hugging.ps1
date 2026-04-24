@@ -1,10 +1,5 @@
-$paths = @(
-    "C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
-    "C:\Program Files (x86)\BraveSoftware\Brave-Browser\Application\brave.exe",
-    "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\Application\brave.exe"
-)
 
-$BravePath = $paths | Where-Object { Test-Path $_ } | Select-Object -First 1
+$BravePath = "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\Application\brave.exe"
 
 if (-not $BravePath) {
     throw "Brave not found"
@@ -17,5 +12,5 @@ $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($shortcutPath)
 $shortcut.TargetPath = $BravePath
 $shortcut.Arguments = "--app=$appUrl"
-$shortcut.IconLocation = "$BravePath,0"
+$shortcut.IconLocation = "$env:Users\priya\Agent_app\huggingface.ico"
 $shortcut.Save()
