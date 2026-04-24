@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PNG to ICO</title>
+<style>
+  :root { color-scheme: dark light; }
+  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 1rem; }
+  h1 { margin-top: 0; }
+  #drop {
+    border: 2px dashed #888; border-radius: 12px;
+    padding: 3rem 1rem; text-align: center; cursor: pointer;
+    transition: background .15s, border-color .15s;
+  }
+  #drop.over { border-color: #4af; background: rgba(80,160,255,.12); }
+  #preview {
+    display: block; max-width: 256px; max-height: 256px;
+    margin: 1rem auto; image-rendering: pixelated;
+    background: repeating-conic-gradient(#0002 0 25%, #0000 0 50%) 50% / 16px 16px;
+  }
+  fieldset { margin-top: 1rem; border: 1px solid #8884; border-radius: 8px; }
+  fieldset label { display: inline-block; margin: .25rem .75rem .25rem 0; }
+  button {
+    padding: .6rem 1.2rem; font-size: 1rem; cursor: pointer;
+    border-radius: 6px; border: 1px solid #8886;
+  }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .hint { color: #888; font-size: .9rem; }
+</style>
+</head>
+<body>
+  <h1>PNG &rarr; ICO</h1>
+  <div id="drop">
+    Drop a PNG here, or click to choose
+    <input id="file" type="file" accept="image/png" hidden>
+  </div>
+  <img id="preview" hidden alt="preview">
+  <fieldset>
+    <legend>Sizes to include</legend>
+    <label><input type="checkbox" value="16"  checked> 16</label>
+    <label><input type="checkbox" value="32"  checked> 32</label>
+    <label><input type="checkbox" value="48"  checked> 48</label>
+    <label><input type="checkbox" value="64"  checked> 64</label>
+    <label><input type="checkbox" value="128" checked> 128</label>
+    <label><input type="checkbox" value="256" checked> 256</label>
+  </fieldset>
+  <p class="hint">Multi-size ICO. Windows picks the right one for the context (taskbar, Explorer, etc.).</p>
+  <p><button id="convert" disabled>Convert &amp; Download .ico</button></p>
+
+<script>
+const drop      = document.getElementById('drop');
+const fileInput = document.getElementById('file');
+const preview   = document.getElementById('preview');
+const convertBtn= document.getElementById('convert');
+let sourceImage = null;
+let sourceName  = 'icon';
+
+drop.addEventListener('click', () => fileInput.click());
+drop.addEventListener('dragover',  e => { e.preventDefault(); drop.classList.add('over'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+drop.addEventListener('drop', e => {
+  e.preventDefault(); drop.classList.remove('over');
+  if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', e => {
+  if (e.target.files[0]) loadFile(e.target.files[0]);
+});
+
+function loadFile(file) {
+  if (!/png$/i.test(file.type) && !/\.png$/i.test(file.name)) {
+    alert('Please choose a PNG.'); return;
+  }
+  sourceName = file.name.replace(/\.png$/i, '') || 'icon';
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const img = new Image();
+    img.onload = () => {
+      sourceImage = img;
+      preview.src = ev.target.result;
+      preview.hidden = false;
+      convertBtn.disabled = false;
+    };
+    img.onerror = () => alert('Could not decode that image.');
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+convertBtn.addEventListener('click', async () => {
+  const sizes = [...document.querySelectorAll('fieldset input:checked')]
+    .map(i => parseInt(i.value, 10))
+    .sort((a, b) => a - b);
+  if (!sizes.length) { alert('Pick at least one size.'); return; }
+
+  const pngs = await Promise.all(sizes.map(size => renderPng(sourceImage, size)));
+  const ico  = buildIco(sizes, pngs);
+  downloadBlob(new Blob([ico], { type: 'image/x-icon' }), sourceName + '.ico');
+});
+
+function renderPng(img, size) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, 0, 0, size, size);
+  return new Promise(resolve => {
+    canvas.toBlob(b => b.arrayBuffer().then(ab => resolve(new Uint8Array(ab))), 'image/png');
+  });
+}
+
+// ICO format: 6-byte ICONDIR + N * 16-byte ICONDIRENTRY + image data.
+// PNG payloads are valid in-ICO since Windows Vista.
+function buildIco(sizes, pngs) {
+  const n = sizes.length;
+  const headerSize = 6 + 16 * n;
+  const total = headerSize + pngs.reduce((s, p) => s + p.length, 0);
+  const buf = new ArrayBuffer(total);
+  const view = new DataView(buf);
+  const bytes = new Uint8Array(buf);
+
+  view.setUint16(0, 0, true);   // reserved
+  view.setUint16(2, 1, true);   // type 1 = icon
+  view.setUint16(4, n, true);   // image count
+
+  let offset = headerSize;
+  for (let i = 0; i < n; i++) {
+    const e = 6 + 16 * i;
+    const size = sizes[i];
+    const png  = pngs[i];
+    // 256 is encoded as 0 in width/height bytes.
+    view.setUint8(e + 0, size >= 256 ? 0 : size);
+    view.setUint8(e + 1, size >= 256 ? 0 : size);
+    view.setUint8(e + 2, 0);                  // palette
+    view.setUint8(e + 3, 0);                  // reserved
+    view.setUint16(e + 4, 1, true);           // color planes
+    view.setUint16(e + 6, 32, true);          // bits per pixel
+    view.setUint32(e + 8, png.length, true);  // image data size
+    view.setUint32(e + 12, offset, true);     // image data offset
+    bytes.set(png, offset);
+    offset += png.length;
+  }
+  return buf;
+}
+
+function downloadBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+</script>
+</body>
+</html>
