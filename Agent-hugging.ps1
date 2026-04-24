@@ -12,5 +12,5 @@ $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($shortcutPath)
 $shortcut.TargetPath = $BravePath
 $shortcut.Arguments = "--app=$appUrl"
-$shortcut.IconLocation = "$env:Users\priya\Agent_app\huggingface.ico"
+$shortcut.IconLocation = "$env:USERPROFILE\huggingface.ico"
 $shortcut.Save()
